@@ -1,11 +1,11 @@
 ## Element Call embedded builder
 FROM node:24.13.1-alpine AS element-call-builder
 
-RUN apk add --no-cache yarn
+RUN corepack enable
 
 WORKDIR /element-call
 COPY element-call/ .
-RUN yarn install --frozen-lockfile
+RUN yarn install --immutable
 ENV NODE_OPTIONS=--max-old-space-size=4096
 RUN yarn build:embedded
 
