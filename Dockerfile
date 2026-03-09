@@ -1,5 +1,5 @@
 ## Element Call embedded builder
-FROM --platform=$BUILDPLATFORM node:24.13.1-alpine AS element-call-builder
+FROM node:24.13.1-alpine AS element-call-builder
 
 RUN apk add --no-cache yarn
 
@@ -10,7 +10,7 @@ ENV NODE_OPTIONS=--max-old-space-size=4096
 RUN yarn build:embedded
 
 ## Builder
-FROM --platform=$BUILDPLATFORM node:24.13.1-alpine AS builder
+FROM node:24.13.1-alpine AS builder
 
 WORKDIR /src
 
