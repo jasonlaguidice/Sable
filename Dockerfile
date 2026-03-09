@@ -1,3 +1,14 @@
+## Element Call embedded builder
+FROM --platform=$BUILDPLATFORM node:24.13.1-alpine AS element-call-builder
+
+RUN apk add --no-cache yarn
+
+WORKDIR /element-call
+COPY element-call/ .
+RUN yarn install --frozen-lockfile
+ENV NODE_OPTIONS=--max-old-space-size=4096
+RUN yarn build:embedded
+
 ## Builder
 FROM --platform=$BUILDPLATFORM node:24.13.1-alpine AS builder
 
@@ -11,6 +22,7 @@ ENV VITE_IS_RELEASE_TAG=$VITE_IS_RELEASE_TAG
 COPY .npmrc package.json package-lock.json /src/
 RUN npm ci --ignore-scripts
 COPY . /src/
+COPY --from=element-call-builder /element-call/embedded/web/dist /src/element-call/embedded/web/dist
 ENV NODE_OPTIONS=--max_old_space_size=4096
 RUN npm run build
 
