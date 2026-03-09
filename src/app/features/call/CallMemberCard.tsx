@@ -26,7 +26,7 @@ interface MemberWithMembershipData {
 type ParticipantVolumeSliderProps = {
   userId: string;
 };
-function ParticipantVolumeSlider({ userId }: ParticipantVolumeSliderProps) {
+export function ParticipantVolumeSlider({ userId }: ParticipantVolumeSliderProps) {
   const [volume, setVolume] = useParticipantVolume(userId);
 
   return (
