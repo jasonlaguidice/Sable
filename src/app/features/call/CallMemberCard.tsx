@@ -10,12 +10,44 @@ import { useRoom } from '../../hooks/useRoom';
 import { getMxIdLocalPart, mxcUrlToHttp } from '../../utils/matrix';
 import { UserAvatar } from '../../components/user-avatar';
 import { getMouseEventCords } from '../../utils/dom';
+import { useParticipantVolume } from '../../state/hooks/callPreferences';
+import {
+  MAX_PARTICIPANT_VOLUME,
+  MIN_PARTICIPANT_VOLUME,
+} from '../../plugins/call/participantAudio';
 import * as css from './styles.css';
 
 interface MemberWithMembershipData {
   membershipData?: SessionMembershipData & {
     'm.call.intent': 'video' | 'audio';
   };
+}
+
+type ParticipantVolumeSliderProps = {
+  userId: string;
+};
+function ParticipantVolumeSlider({ userId }: ParticipantVolumeSliderProps) {
+  const [volume, setVolume] = useParticipantVolume(userId);
+
+  return (
+    <Box gap="200" alignItems="Center">
+      <Icon src={Icons.VolumeHigh} size="100" />
+      <input
+        type="range"
+        min={MIN_PARTICIPANT_VOLUME}
+        max={MAX_PARTICIPANT_VOLUME}
+        step={0.05}
+        value={volume}
+        onChange={(evt) => setVolume(Number(evt.target.value))}
+        onClick={(evt) => evt.stopPropagation()}
+        style={{ flex: 1 }}
+        aria-label="Participant volume"
+      />
+      <Text size="T200" style={{ minWidth: '3ch', textAlign: 'right' }}>
+        {`${Math.round(volume * 100)}%`}
+      </Text>
+    </Box>
+  );
 }
 
 type CallMemberCardProps = {
@@ -30,6 +62,9 @@ export function CallMemberCard({ member }: CallMemberCardProps) {
 
   const userId = member.sender;
   if (!userId) return null;
+
+  const localUserId = mx.getSafeUserId();
+  const isRemote = userId !== localUserId;
 
   const name = getMemberDisplayName(room, userId) ?? getMxIdLocalPart(userId) ?? userId;
   const avatarMxc = getMemberAvatarMxc(room, userId);
@@ -57,21 +92,24 @@ export function CallMemberCard({ member }: CallMemberCardProps) {
         )
       }
     >
-      <Box grow="Yes" gap="300" alignItems="Center">
-        <Avatar size="200" radii="400">
-          <UserAvatar
-            userId={userId}
-            src={avatarUrl}
-            alt={name}
-            renderFallback={() => <Icon size="50" src={Icons.User} filled />}
-          />
-        </Avatar>
-        <Box grow="Yes">
-          <Text size="L400" truncate>
-            {name}
-          </Text>
+      <Box direction="Column" grow="Yes" gap="200">
+        <Box grow="Yes" gap="300" alignItems="Center">
+          <Avatar size="200" radii="400">
+            <UserAvatar
+              userId={userId}
+              src={avatarUrl}
+              alt={name}
+              renderFallback={() => <Icon size="50" src={Icons.User} filled />}
+            />
+          </Avatar>
+          <Box grow="Yes">
+            <Text size="L400" truncate>
+              {name}
+            </Text>
+          </Box>
+          {audioOnly && <Icon src={Icons.VideoCameraMute} size="100" />}
         </Box>
-        {audioOnly && <Icon src={Icons.VideoCameraMute} size="100" />}
+        {isRemote && <ParticipantVolumeSlider userId={userId} />}
       </Box>
     </SequenceCard>
   );

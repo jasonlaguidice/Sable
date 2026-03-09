@@ -123,6 +123,17 @@ export const useCallMemberSoundSync = (embed: CallEmbed) => {
   );
 };
 
+export const useCallMemberVolumeSync = (embed: CallEmbed) => {
+  const callSession = useCallSession(embed.room);
+  useCallMembersChange(
+    callSession,
+    useCallback(() => {
+      // Delay reapplication to allow the track to attach to the audio element first
+      setTimeout(() => embed.control.reapplyParticipantVolumes(), 500);
+    }, [embed])
+  );
+};
+
 export const useCallThemeSync = (embed: CallEmbed) => {
   const theme = useTheme();
 

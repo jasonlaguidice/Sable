@@ -2,6 +2,10 @@ import { ClientWidgetApi } from 'matrix-widget-api';
 import EventEmitter from 'events';
 import { CallControlState } from './CallControlState';
 import { ElementMediaStateDetail, ElementMediaStatePayload, ElementWidgetActions } from './types';
+import {
+  setParticipantVolume as applyParticipantVolume,
+  cleanupParticipantAudioContext,
+} from './participantAudio';
 
 export enum CallControlEvent {
   StateUpdate = 'state_update',
@@ -13,6 +17,8 @@ export class CallControl extends EventEmitter implements CallControlState {
   private call: ClientWidgetApi;
 
   private iframe: HTMLIFrameElement;
+
+  private participantVolumes = new Map<string, number>();
 
   constructor(state: CallControlState, call: ClientWidgetApi, iframe: HTMLIFrameElement) {
     super();
@@ -111,6 +117,27 @@ export class CallControl extends EventEmitter implements CallControlState {
     if (!this.sound && this.microphone) {
       this.toggleMicrophone();
     }
+  }
+
+  public setParticipantVolume(userId: string, gain: number): void {
+    this.participantVolumes.set(userId, gain);
+    const callDocument = this.iframe.contentDocument ?? this.iframe.contentWindow?.document;
+    if (callDocument) {
+      applyParticipantVolume(callDocument, userId, gain);
+    }
+  }
+
+  public reapplyParticipantVolumes(): void {
+    const callDocument = this.iframe.contentDocument ?? this.iframe.contentWindow?.document;
+    if (!callDocument) return;
+    this.participantVolumes.forEach((gain, userId) => {
+      applyParticipantVolume(callDocument, userId, gain);
+    });
+  }
+
+  public cleanupParticipant(userId: string): void {
+    this.participantVolumes.delete(userId);
+    cleanupParticipantAudioContext(userId);
   }
 
   private emitStateUpdate() {

@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext } from 'react';
-import { useAtom } from 'jotai';
+import { useAtom, useAtomValue } from 'jotai';
 import { CallPreferences, CallPreferencesAtom } from '../callPreferences';
+import { DEFAULT_PARTICIPANT_VOLUME } from '../../plugins/call/participantAudio';
+import { callEmbedAtom } from '../callEmbed';
 
 const CallPreferencesAtomContext = createContext<CallPreferencesAtom | null>(null);
 export const CallPreferencesProvider = CallPreferencesAtomContext.Provider;
@@ -58,4 +60,28 @@ export const useCallPreferences = (): CallPreferences & {
     toggleVideo,
     toggleSound,
   };
+};
+
+export const useParticipantVolume = (userId: string): [number, (gain: number) => void] => {
+  const callPrefAtom = useCallPreferencesAtom();
+  const [pref, setPref] = useAtom(callPrefAtom);
+  const callEmbed = useAtomValue(callEmbedAtom);
+
+  const volume = pref.participantVolumes?.[userId] ?? DEFAULT_PARTICIPANT_VOLUME;
+
+  const setVolume = useCallback(
+    (gain: number) => {
+      setPref({
+        ...pref,
+        participantVolumes: {
+          ...pref.participantVolumes,
+          [userId]: gain,
+        },
+      });
+      callEmbed?.control.setParticipantVolume(userId, gain);
+    },
+    [setPref, pref, userId, callEmbed]
+  );
+
+  return [volume, setVolume];
 };
