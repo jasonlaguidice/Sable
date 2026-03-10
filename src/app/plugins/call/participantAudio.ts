@@ -63,6 +63,10 @@ export function setParticipantVolume(doc: Document, userId: string, gain: number
   }
   track.setAudioContext(audioContexts.get(userId));
   track.setVolume(clampedGain);
+  // Mute the HTMLAudioElement so audio only plays through the GainNode path.
+  // Without this, the browser plays audio twice (original element + GainNode),
+  // causing an echo/duplicate effect.
+  matchingEl.muted = true;
   return true;
 }
 

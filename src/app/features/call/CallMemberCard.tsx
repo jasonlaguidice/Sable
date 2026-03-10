@@ -16,6 +16,7 @@ import {
   MIN_PARTICIPANT_VOLUME,
 } from '../../plugins/call/participantAudio';
 import * as css from './styles.css';
+import { volumeSlider } from './VolumeSlider.css';
 
 interface MemberWithMembershipData {
   membershipData?: SessionMembershipData & {
@@ -40,7 +41,7 @@ export function ParticipantVolumeSlider({ userId }: ParticipantVolumeSliderProps
         value={volume}
         onChange={(evt) => setVolume(Number(evt.target.value))}
         onClick={(evt) => evt.stopPropagation()}
-        style={{ flex: 1 }}
+        className={volumeSlider}
         aria-label="Participant volume"
       />
       <Text size="T200" style={{ minWidth: '3ch', textAlign: 'right' }}>
