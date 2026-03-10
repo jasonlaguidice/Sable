@@ -1,3 +1,5 @@
+import { getSettings } from '$state/settings';
+
 // Walk the React fiber on an audio element to find the trackRef
 function getTrackRefFromElement(
   audioEl: HTMLAudioElement
@@ -34,13 +36,80 @@ export const MIN_PARTICIPANT_VOLUME = 0;
 export const MAX_PARTICIPANT_VOLUME = 4.0; // 400%
 export const DEFAULT_PARTICIPANT_VOLUME = 1.0; // 100%
 
-// Map of userId -> AudioContext (one per participant, reused)
-const audioContexts = new Map<string, AudioContext>();
+type ParticipantChain = {
+  element: HTMLAudioElement;
+  ctx: AudioContext;
+  gainNode: GainNode;
+  enhanced: boolean;
+};
 
-// Set volume for a specific participant by Matrix userId
+// One audio graph per participant, keyed by Matrix userId
+const participantChains = new Map<string, ParticipantChain>();
+
+// Soft-clipping curve: y = (3/2)x - x³/2, maps [-1,1] → [-1,1] with gentle saturation
+function buildSoftClipCurve(): Float32Array {
+  const n = 1024;
+  const curve = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i * 2) / n - 1;
+    curve[i] = (3 / 2) * x - (x * x * x) / 2;
+  }
+  return curve;
+}
+
+// Build the Web Audio graph for one participant.
+// Enhancement chain: source → compressor → presenceEQ → waveshaper → gainNode → destination
+// Plain chain:       source → gainNode → destination
+function buildChain(
+  ctx: AudioContext,
+  el: HTMLAudioElement,
+  gain: number,
+  enhance: boolean
+): GainNode {
+  const source = ctx.createMediaElementSource(el);
+  const gainNode = ctx.createGain();
+  gainNode.gain.value = gain;
+
+  if (enhance) {
+    // Compress dynamic range so quiet speech is perceptually louder
+    const compressor = ctx.createDynamicsCompressor();
+    compressor.threshold.value = -30;
+    compressor.knee.value = 10;
+    compressor.ratio.value = 4;
+    compressor.attack.value = 0.003;
+    compressor.release.value = 0.25;
+
+    // Presence peak at 3kHz (+6dB) — boosts speech intelligibility
+    const presenceEQ = ctx.createBiquadFilter();
+    presenceEQ.type = 'peaking';
+    presenceEQ.frequency.value = 3000;
+    presenceEQ.gain.value = 6;
+    presenceEQ.Q.value = 1.0;
+
+    // Soft clipper — prevents harshness at high gains (e.g. 300–400%)
+    const waveshaper = ctx.createWaveShaper();
+    waveshaper.curve = buildSoftClipCurve() as Float32Array<ArrayBuffer>;
+    waveshaper.oversample = '4x';
+
+    source.connect(compressor);
+    compressor.connect(presenceEQ);
+    presenceEQ.connect(waveshaper);
+    waveshaper.connect(gainNode);
+  } else {
+    source.connect(gainNode);
+  }
+
+  gainNode.connect(ctx.destination);
+  return gainNode;
+}
+
+// Set volume for a specific participant by Matrix userId.
 // gain: 0.0 to 4.0 (1.0 = 100%, 2.0 = 200%, 4.0 = 400%)
+// Uses createMediaElementSource so audio plays only through the Web Audio graph —
+// no need to mute the HTMLAudioElement separately.
 export function setParticipantVolume(doc: Document, userId: string, gain: number): boolean {
   const clampedGain = Math.max(MIN_PARTICIPANT_VOLUME, Math.min(MAX_PARTICIPANT_VOLUME, gain));
+
   const audioEls = Array.from(
     doc.querySelectorAll<HTMLAudioElement>('.lk-participant-media-audio')
   );
@@ -53,27 +122,30 @@ export function setParticipantVolume(doc: Document, userId: string, gain: number
 
   if (!matchingEl) return false;
 
-  const ref = getTrackRefFromElement(matchingEl);
-  if (!ref?.track) return false;
+  const enhance = getSettings().enableAudioEnhancement ?? false;
+  const existing = participantChains.get(userId);
 
-  const { track } = ref;
-  // Always use AudioContext for consistency (el.volume caps at 1.0)
-  if (!audioContexts.has(userId)) {
-    audioContexts.set(userId, new AudioContext());
+  if (existing && existing.element === matchingEl && existing.enhanced === enhance) {
+    // Same element, same enhancement mode — just update the gain value
+    existing.gainNode.gain.value = clampedGain;
+    return true;
   }
-  track.setAudioContext(audioContexts.get(userId));
-  track.setVolume(clampedGain);
-  // Mute the HTMLAudioElement so audio only plays through the GainNode path.
-  // Without this, the browser plays audio twice (original element + GainNode),
-  // causing an echo/duplicate effect.
-  matchingEl.muted = true;
+
+  // Element changed (rejoin) or enhancement mode toggled — rebuild the graph
+  if (existing) {
+    existing.ctx.close().catch(() => undefined);
+  }
+
+  const ctx = new AudioContext();
+  const gainNode = buildChain(ctx, matchingEl, clampedGain, enhance);
+  participantChains.set(userId, { element: matchingEl, ctx, gainNode, enhanced: enhance });
   return true;
 }
 
 export function cleanupParticipantAudioContext(userId: string): void {
-  const ctx = audioContexts.get(userId);
-  if (ctx) {
-    ctx.close().catch(() => undefined);
-    audioContexts.delete(userId);
+  const chain = participantChains.get(userId);
+  if (chain) {
+    chain.ctx.close().catch(() => undefined);
+    participantChains.delete(userId);
   }
 }
