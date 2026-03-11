@@ -27,6 +27,8 @@ import { useMediaAuthentication } from '../../hooks/useMediaAuthentication';
 import { UserAvatar } from '../../components/user-avatar';
 import { useOpenUserRoomProfile } from '../../state/hooks/userRoomProfile';
 import { getMouseEventCords } from '../../utils/dom';
+import { useSetting } from '../../state/hooks/settings';
+import { settingsAtom } from '../../state/settings';
 import { ParticipantVolumeSlider } from '../call/CallMemberCard';
 
 type LiveChipProps = {
@@ -38,6 +40,7 @@ export function LiveChip({ count, room, members }: LiveChipProps) {
   const mx = useMatrixClient();
   const useAuthentication = useMediaAuthentication();
   const openUserProfile = useOpenUserRoomProfile();
+  const [audioEnhancement] = useSetting(settingsAtom, 'enableAudioEnhancement');
 
   const [cords, setCords] = useState<RectCords>();
 
@@ -114,7 +117,7 @@ export function LiveChip({ count, room, members }: LiveChipProps) {
                           <Text size="T300" truncate>
                             {name}
                           </Text>
-                          {isRemote && <ParticipantVolumeSlider userId={userId} />}
+                          {isRemote && audioEnhancement && <ParticipantVolumeSlider userId={userId} />}
                         </Box>
                       </MenuItem>
                     );

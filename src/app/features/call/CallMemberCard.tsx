@@ -15,6 +15,8 @@ import {
   MAX_PARTICIPANT_VOLUME,
   MIN_PARTICIPANT_VOLUME,
 } from '../../plugins/call/participantAudio';
+import { useSetting } from '../../state/hooks/settings';
+import { settingsAtom } from '../../state/settings';
 import * as css from './styles.css';
 import { volumeSlider } from './VolumeSlider.css';
 
@@ -58,6 +60,7 @@ export function CallMemberCard({ member }: CallMemberCardProps) {
   const mx = useMatrixClient();
   const useAuthentication = useMediaAuthentication();
   const room = useRoom();
+  const [audioEnhancement] = useSetting(settingsAtom, 'enableAudioEnhancement');
 
   const openUserProfile = useOpenUserRoomProfile();
 
@@ -110,7 +113,7 @@ export function CallMemberCard({ member }: CallMemberCardProps) {
           </Box>
           {audioOnly && <Icon src={Icons.VideoCameraMute} size="100" />}
         </Box>
-        {isRemote && <ParticipantVolumeSlider userId={userId} />}
+        {isRemote && audioEnhancement && <ParticipantVolumeSlider userId={userId} />}
       </Box>
     </SequenceCard>
   );
