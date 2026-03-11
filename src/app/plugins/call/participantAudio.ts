@@ -62,11 +62,11 @@ function buildSoftClipCurve(): Float32Array {
 // Plain chain:       source → gainNode → destination
 function buildChain(
   ctx: AudioContext,
-  el: HTMLAudioElement,
+  stream: MediaStream,
   gain: number,
   enhance: boolean
 ): GainNode {
-  const source = ctx.createMediaElementSource(el);
+  const source = ctx.createMediaStreamSource(stream);
   const gainNode = ctx.createGain();
   gainNode.gain.value = gain;
 
@@ -105,8 +105,9 @@ function buildChain(
 
 // Set volume for a specific participant by Matrix userId.
 // gain: 0.0 to 4.0 (1.0 = 100%, 2.0 = 200%, 4.0 = 400%)
-// Uses createMediaElementSource so audio plays only through the Web Audio graph —
-// no need to mute the HTMLAudioElement separately.
+// Uses createMediaStreamSource on el.srcObject so the Web Audio graph taps the real
+// MediaStream that LiveKit routes audio through. The HTMLAudioElement is muted to
+// prevent double-playback alongside our graph.
 export function setParticipantVolume(doc: Document, userId: string, gain: number): boolean {
   const clampedGain = Math.max(MIN_PARTICIPANT_VOLUME, Math.min(MAX_PARTICIPANT_VOLUME, gain));
 
@@ -122,6 +123,13 @@ export function setParticipantVolume(doc: Document, userId: string, gain: number
 
   if (!matchingEl) return false;
 
+  // Fallback: if srcObject is not a MediaStream, control volume via the element directly
+  if (!(matchingEl.srcObject instanceof MediaStream)) {
+    matchingEl.volume = Math.min(1, clampedGain);
+    return true;
+  }
+
+  const stream = matchingEl.srcObject;
   const enhance = getSettings().enableAudioEnhancement ?? false;
   const existing = participantChains.get(userId);
 
@@ -133,16 +141,19 @@ export function setParticipantVolume(doc: Document, userId: string, gain: number
 
   // Element changed (rejoin) or enhancement mode toggled — rebuild the graph
   if (existing) {
+    existing.element.muted = false;
     existing.ctx.close().catch(() => undefined);
   }
 
-  // Create the AudioContext in the iframe's window so createMediaElementSource
+  // Create the AudioContext in the iframe's window so createMediaStreamSource
   // works correctly — cross-window contexts cause silent failures in some browsers.
   const IframeAudioContext =
     (doc.defaultView as any)?.AudioContext ?? (doc.defaultView as any)?.webkitAudioContext;
   const ctx: AudioContext = new IframeAudioContext();
   ctx.resume().catch(() => undefined);
-  const gainNode = buildChain(ctx, matchingEl, clampedGain, enhance);
+  const gainNode = buildChain(ctx, stream, clampedGain, enhance);
+  // Mute the element so native playback doesn't double-play alongside our Web Audio graph
+  matchingEl.muted = true;
   participantChains.set(userId, { element: matchingEl, ctx, gainNode, enhanced: enhance });
   return true;
 }
@@ -150,6 +161,7 @@ export function setParticipantVolume(doc: Document, userId: string, gain: number
 export function cleanupParticipantAudioContext(userId: string): void {
   const chain = participantChains.get(userId);
   if (chain) {
+    chain.element.muted = false;
     chain.ctx.close().catch(() => undefined);
     participantChains.delete(userId);
   }
