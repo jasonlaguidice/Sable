@@ -26,6 +26,17 @@ interface MemberWithMembershipData {
   };
 }
 
+// Slider position range (0-100). Gain is stored separately as a real multiplier.
+const SLIDER_MAX = 100;
+
+// Quadratic curve: gives fine control at low volumes, big boosts at the top.
+function sliderToGain(sliderValue: number): number {
+  return (sliderValue / SLIDER_MAX) ** 2 * MAX_PARTICIPANT_VOLUME;
+}
+function gainToSlider(gain: number): number {
+  return Math.round(Math.sqrt(gain / MAX_PARTICIPANT_VOLUME) * SLIDER_MAX);
+}
+
 type ParticipantVolumeSliderProps = {
   userId: string;
 };
@@ -38,10 +49,10 @@ export function ParticipantVolumeSlider({ userId }: ParticipantVolumeSliderProps
       <input
         type="range"
         min={MIN_PARTICIPANT_VOLUME}
-        max={MAX_PARTICIPANT_VOLUME}
-        step={0.05}
-        value={volume}
-        onChange={(evt) => setVolume(Number(evt.target.value))}
+        max={SLIDER_MAX}
+        step={1}
+        value={gainToSlider(volume)}
+        onChange={(evt) => setVolume(sliderToGain(Number(evt.target.value)))}
         onClick={(evt) => evt.stopPropagation()}
         className={volumeSlider}
         aria-label="Participant volume"

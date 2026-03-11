@@ -33,7 +33,7 @@ export function matrixUserIdFromIdentity(identity: string): string {
 }
 
 export const MIN_PARTICIPANT_VOLUME = 0;
-export const MAX_PARTICIPANT_VOLUME = 4.0; // 400%
+export const MAX_PARTICIPANT_VOLUME = 8.0; // 800%
 export const DEFAULT_PARTICIPANT_VOLUME = 1.0; // 100%
 
 type ParticipantChain = {
