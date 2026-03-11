@@ -117,7 +117,9 @@ export function LiveChip({ count, room, members }: LiveChipProps) {
                           <Text size="T300" truncate>
                             {name}
                           </Text>
-                          {isRemote && audioEnhancement && <ParticipantVolumeSlider userId={userId} />}
+                          {isRemote && audioEnhancement && (
+                            <ParticipantVolumeSlider userId={userId} />
+                          )}
                         </Box>
                       </MenuItem>
                     );

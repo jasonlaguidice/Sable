@@ -50,7 +50,7 @@ const participantChains = new Map<string, ParticipantChain>();
 function buildSoftClipCurve(): Float32Array {
   const n = 1024;
   const curve = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < n; i += 1) {
     const x = (i * 2) / n - 1;
     curve[i] = (3 / 2) * x - (x * x * x) / 2;
   }
