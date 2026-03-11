@@ -136,7 +136,12 @@ export function setParticipantVolume(doc: Document, userId: string, gain: number
     existing.ctx.close().catch(() => undefined);
   }
 
-  const ctx = new AudioContext();
+  // Create the AudioContext in the iframe's window so createMediaElementSource
+  // works correctly — cross-window contexts cause silent failures in some browsers.
+  const IframeAudioContext =
+    (doc.defaultView as any)?.AudioContext ?? (doc.defaultView as any)?.webkitAudioContext;
+  const ctx: AudioContext = new IframeAudioContext();
+  ctx.resume().catch(() => undefined);
   const gainNode = buildChain(ctx, matchingEl, clampedGain, enhance);
   participantChains.set(userId, { element: matchingEl, ctx, gainNode, enhanced: enhance });
   return true;
