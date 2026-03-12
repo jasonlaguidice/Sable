@@ -60,8 +60,14 @@ function buildSoftClipCurve(): Float32Array {
 }
 
 // Build the Web Audio graph for one participant.
-// Enhancement chain: source → compressor → presenceEQ → waveshaper → gainNode → destination
-// Plain chain:       source → gainNode → destination
+//
+// WebRTC AGC leaves peaks near 0 dBFS, so any gain > 1.0 hard-clips immediately.
+// The pre-compressor pulls those peaks down to create headroom; the gain node then
+// amplifies into that headroom, raising the average (perceived) level. A final
+// brick-wall limiter prevents any residual clipping at the output.
+//
+// Plain chain:    source → preComp → gainNode → limiter → destination
+// Enhanced chain: source → preComp → presenceEQ → gainNode → waveshaper → limiter → destination
 function buildChain(
   ctx: AudioContext,
   stream: MediaStream,
@@ -69,18 +75,28 @@ function buildChain(
   enhance: boolean
 ): GainNode {
   const source = ctx.createMediaStreamSource(stream);
+
+  // Pre-compressor: only catches loud peaks (above -6 dBFS) with a 4:1 ratio,
+  // leaving quiet average speech levels untouched so 100% still sounds natural.
+  const preComp = ctx.createDynamicsCompressor();
+  preComp.threshold.value = -6;
+  preComp.knee.value = 2;
+  preComp.ratio.value = 4;
+  preComp.attack.value = 0.001;
+  preComp.release.value = 0.1;
+
   const gainNode = ctx.createGain();
   gainNode.gain.value = gain;
 
-  if (enhance) {
-    // Compress dynamic range so quiet speech is perceptually louder
-    const compressor = ctx.createDynamicsCompressor();
-    compressor.threshold.value = -30;
-    compressor.knee.value = 10;
-    compressor.ratio.value = 4;
-    compressor.attack.value = 0.003;
-    compressor.release.value = 0.25;
+  // Brick-wall limiter: final safety net so the output never hard-clips at the DAC.
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = -1;
+  limiter.knee.value = 0;
+  limiter.ratio.value = 20;
+  limiter.attack.value = 0.001;
+  limiter.release.value = 0.1;
 
+  if (enhance) {
     // Presence peak at 3kHz (+6dB) — boosts speech intelligibility
     const presenceEQ = ctx.createBiquadFilter();
     presenceEQ.type = 'peaking';
@@ -88,20 +104,23 @@ function buildChain(
     presenceEQ.gain.value = 6;
     presenceEQ.Q.value = 1.0;
 
-    // Soft clipper — prevents harshness at high gains (e.g. 300–400%)
+    // Soft clipper — adds warmth/saturation at very high gains
     const waveshaper = ctx.createWaveShaper();
     waveshaper.curve = buildSoftClipCurve() as Float32Array<ArrayBuffer>;
     waveshaper.oversample = '4x';
 
-    source.connect(compressor);
-    compressor.connect(presenceEQ);
-    presenceEQ.connect(waveshaper);
-    waveshaper.connect(gainNode);
+    source.connect(preComp);
+    preComp.connect(presenceEQ);
+    presenceEQ.connect(gainNode);
+    gainNode.connect(waveshaper);
+    waveshaper.connect(limiter);
   } else {
-    source.connect(gainNode);
+    source.connect(preComp);
+    preComp.connect(gainNode);
+    gainNode.connect(limiter);
   }
 
-  gainNode.connect(ctx.destination);
+  limiter.connect(ctx.destination);
   return gainNode;
 }
 
