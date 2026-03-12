@@ -38,6 +38,8 @@ export const DEFAULT_PARTICIPANT_VOLUME = 1.0; // 100%
 
 type ParticipantChain = {
   element: HTMLAudioElement;
+  // LiveKit RemoteAudioTrack — kept so we can restore its volume on cleanup
+  lkTrack: any;
   ctx: AudioContext;
   gainNode: GainNode;
   enhanced: boolean;
@@ -104,10 +106,12 @@ function buildChain(
 }
 
 // Set volume for a specific participant by Matrix userId.
-// gain: 0.0 to 4.0 (1.0 = 100%, 2.0 = 200%, 4.0 = 400%)
-// Uses createMediaStreamSource on el.srcObject so the Web Audio graph taps the real
-// MediaStream that LiveKit routes audio through. The HTMLAudioElement is muted to
-// prevent double-playback alongside our graph.
+// gain: 0.0 to 8.0 (1.0 = 100%, 8.0 = 800%)
+//
+// LiveKit may route audio through its own internal AudioContext rather than the
+// <audio> element's native playback. Muting the element alone is not enough.
+// We call track.setVolume(0) to silence LiveKit's own path, then our Web Audio
+// graph (createMediaStreamSource → GainNode) becomes the sole audio source.
 export function setParticipantVolume(doc: Document, userId: string, gain: number): boolean {
   const clampedGain = Math.max(MIN_PARTICIPANT_VOLUME, Math.min(MAX_PARTICIPANT_VOLUME, gain));
 
@@ -115,21 +119,39 @@ export function setParticipantVolume(doc: Document, userId: string, gain: number
     doc.querySelectorAll<HTMLAudioElement>('.lk-participant-media-audio')
   );
 
-  const matchingEl = audioEls.find((el) => {
+  // Walk fibers while searching so we only traverse once per element
+  const matchingEntry = audioEls.reduce<{
+    el: HTMLAudioElement;
+    ref: { participant: any; track: any };
+  } | null>((found, el) => {
+    if (found) return found;
     const ref = getTrackRefFromElement(el);
-    if (!ref) return false;
-    return matrixUserIdFromIdentity(ref.participant?.identity ?? '') === userId;
-  });
+    if (!ref) return null;
+    if (matrixUserIdFromIdentity(ref.participant?.identity ?? '') === userId) {
+      return { el, ref };
+    }
+    return null;
+  }, null);
 
-  if (!matchingEl) return false;
+  if (!matchingEntry) return false;
 
-  // Fallback: if srcObject is not a MediaStream, control volume via the element directly
-  if (!(matchingEl.srcObject instanceof MediaStream)) {
+  const { el: matchingEl, ref: matchedTrackRef } = matchingEntry;
+  const lkTrack = matchedTrackRef.track ?? null;
+
+  // Prefer the track's own mediaStream (works even if LiveKit has nulled srcObject)
+  let stream: MediaStream | null = null;
+  if (lkTrack?.mediaStream instanceof MediaStream) {
+    stream = lkTrack.mediaStream;
+  } else if (matchingEl.srcObject instanceof MediaStream) {
+    stream = matchingEl.srcObject;
+  }
+
+  if (!stream) {
+    // Last-resort fallback: native element volume (capped at 1.0)
     matchingEl.volume = Math.min(1, clampedGain);
     return true;
   }
 
-  const stream = matchingEl.srcObject;
   const enhance = getSettings().enableAudioEnhancement ?? false;
   const existing = participantChains.get(userId);
 
@@ -141,9 +163,13 @@ export function setParticipantVolume(doc: Document, userId: string, gain: number
 
   // Element changed (rejoin) or enhancement mode toggled — rebuild the graph
   if (existing) {
+    existing.lkTrack?.setVolume(1);
     existing.element.muted = false;
     existing.ctx.close().catch(() => undefined);
   }
+
+  // Silence LiveKit's own internal audio path so it doesn't mix with ours
+  lkTrack?.setVolume(0);
 
   // Create the AudioContext in the iframe's window so createMediaStreamSource
   // works correctly — cross-window contexts cause silent failures in some browsers.
@@ -154,13 +180,14 @@ export function setParticipantVolume(doc: Document, userId: string, gain: number
   const gainNode = buildChain(ctx, stream, clampedGain, enhance);
   // Mute the element so native playback doesn't double-play alongside our Web Audio graph
   matchingEl.muted = true;
-  participantChains.set(userId, { element: matchingEl, ctx, gainNode, enhanced: enhance });
+  participantChains.set(userId, { element: matchingEl, lkTrack, ctx, gainNode, enhanced: enhance });
   return true;
 }
 
 export function cleanupParticipantAudioContext(userId: string): void {
   const chain = participantChains.get(userId);
   if (chain) {
+    chain.lkTrack?.setVolume(1);
     chain.element.muted = false;
     chain.ctx.close().catch(() => undefined);
     participantChains.delete(userId);
